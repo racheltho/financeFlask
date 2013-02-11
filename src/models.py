@@ -35,7 +35,31 @@ def get_or_create(session, model, **kwargs):
                 instance = model(**kwargs)
                 session.add(instance)
                 return instance
- 
+
+def get_date_or_none(entry):
+    my_date = None
+    if isinstance(entry, float):
+        try:
+            date_tuple = xldate_as_tuple(entry,0)[0:3]
+            my_date = date(*date_tuple)
+        except:
+            my_date = None
+    return my_date
+
+
+def int_or_none(entry):
+    if isinstance(entry, float):
+        return int(entry)
+    else:
+        return None
+    
+def str_or_none(entry):
+    if entry == '':
+        return None
+    else:
+        return entry   
+
+
 def json_dict(o):
     return json_obj([dict(d) for d in o])
 
@@ -77,18 +101,20 @@ class Industry(db.Model):
 class Parent(db.Model):
     id = db.Column(db.Integer, primary_key=True)   
     parent = db.Column(db.Unicode)
+   
+
+class Advertiser(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    advertiser = db.Column(db.Unicode)
+    parent_id = db.Column(db.Integer, db.ForeignKey('parent.id'))
+    parent = db.relationship('Parent', backref=backref("advertisers", cascade="all,delete"))
     sic = db.Column(db.Integer)
     naics = db.Column(db.Integer)
     adjusted_industry = db.Column(db.Unicode)
     consolidated_industry = db.Column(db.Unicode)
     
-class Advertiser(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    advertiser = db.Column(db.Unicode)
-    parent_agency_id = db.Column(db.Integer, db.ForeignKey('parent.id'))
-    parent_agency = db.relationship('Parent', backref=backref("advertisers", cascade="all,delete"))
-    industry_id = db.Column(db.Integer, db.ForeignKey('industry.id'))
-    industry = db.relationship('Industry')
+    def as_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
 """
 class Association(db.Model):
@@ -123,6 +149,8 @@ class Rep(db.Model):
     product = db.relationship('Product')
     def name(self):
         return u"%s, %s" % (self.last_name, self.first_name)
+    def as_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
 class Campaign(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -138,7 +166,7 @@ class Campaign(db.Model):
     industry = db.Column(db.Unicode)
     agency = db.Column(db.Unicode)
     sfdc_oid = db.Column(db.Integer)    ##  Would like to make this unique, but can't without resolving rep issue
-    rep_id = db.Column(db.Integer, db.ForeignKey('rep.id'))
+    #rep_id = db.Column(db.Integer, db.ForeignKey('rep.id'))
     #rep = db.relationship('Rep')
     # To allow multiple reps.  Right now, this is creating too many problems
     rep = db.relationship('Rep',secondary=association_table)
@@ -167,7 +195,11 @@ class Campaign(db.Model):
         else:  
             return 0
     def as_dict(self):
-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+        res = {c.name: getattr(self, c.name) for c in self.__table__.columns}
+        if(self.advertiser != None):
+            res['advertiser'] = self.advertiser.as_dict()
+        res['rep'] = [r.as_dict() for r in self.rep if r != None]
+        return res
 
 class Booked(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -207,7 +239,8 @@ sfdc_table = Sfdc.__table__
 campaign_table = Campaign.__table__
 rep_table = Rep.__table__
 channel_table = Channel.__table__
-sfdc_campaign_join = sfdc_table.outerjoin(campaign_table.join(rep_table, campaign_table.c.rep_id == rep_table.c.id), sfdc_table.c.oid == campaign_table.c.sfdc_oid)
+sfdc_campaign_join = sfdc_table.outerjoin(campaign_table, sfdc_table.c.oid == campaign_table.c.sfdc_oid)
+#.join(rep_table, campaign_table.c.rep_id == rep_table.c.id)
 #sfdc_campaign_join = sfdc_table.outerjoin(campaign_table, sfdc_table.c.oid == campaign_table.c.sfdc_oid)
 
 # map to it
@@ -217,10 +250,10 @@ class Sfdccampaign(db.Model):
 
     #chanid = channel_table.c.id
     #chanchannel = channel_table.c.channel
-    rid = rep_table.c.id
-    rchannel_id = rep_table.c.channel_id
-    rproduct_id = rep_table.c.product_id
-    rtype = rep_table.c.type
+    #rid = rep_table.c.id
+    #rchannel_id = rep_table.c.channel_id
+    #rproduct_id = rep_table.c.product_id
+    #rtype = rep_table.c.type
     cid = campaign_table.c.id
     ccp = campaign_table.c.cp
     cstart_date = campaign_table.c.start_date
@@ -281,22 +314,7 @@ def readSFDCexcel():
             s.add(a)
             s.commit()
 
-def get_date_or_none(entry):
-    my_date = None
-    if isinstance(entry, float):
-        try:
-            date_tuple = xldate_as_tuple(entry,0)[0:3]
-            my_date = date(*date_tuple)
-        except:
-            my_date = None
-    return my_date
 
-
-def int_or_none(entry):
-    if isinstance(entry, float):
-        return int(entry)
-    else:
-        return None
 
 def populateProduct(wb): 
     sh = wb.sheet_by_name('Product')
@@ -338,47 +356,34 @@ def populateChannel(wb):
 #
 
 def populateParent(wb):         
-    sh = wb.sheet_by_name('ParentInfo_02052013')     
-    for rownum in range(4, 2233): #sh.nrows):
-        parent = sh.cell(rownum,7).value
-        acc = sh.cell(rownum,8).value
-        sic = int_or_none(sh.cell(rownum,9).value)
-        naics = int_or_none(sh.cell(rownum,10).value)
-        adj = sh.cell(rownum,11).value
-        consol = sh.cell(rownum,12).value
-        a = Parent(parent = parent, sic = sic, naics = naics, adjusted_industry = adj, consolidated_industry = consol)
+    sh = wb.sheet_by_name('Parents')   
+    for rownum in range(3,1230):
+        parent = sh.cell(rownum,8).value
+        a = Parent(parent = parent)
         db.session.add(a)   
     db.session.commit()
     print("PopulateParent Finished")
 
 
 def populateAdvertiser(wb):            
-    sh = wb.sheet_by_name('Advertiser')
-     
-    for rownum in range(1, sh.nrows):
-        advertiser = sh.cell(rownum,0).value
-        parent_name = sh.cell(rownum,1).value
-        sic = sh.cell(rownum,2).value
-        naics = sh.cell(rownum,3).value
-        industry_name = sh.cell(rownum,4).value
-        if re.match('[(#]', industry_name):
-            industry = None
+    sh = wb.sheet_by_name('ParentInfo_02082013')
+
+    for rownum in range(4, 2233): #sh.nrows):
+        parent = get_or_create(db.session, Parent, parent = sh.cell(rownum,7).value)
+        acc = sh.cell(rownum,8).value
+        sic = int_or_none(sh.cell(rownum,9).value)
+        naics = int_or_none(sh.cell(rownum,10).value)
+        adj = str_or_none(sh.cell(rownum,11).value)
+        consol = str_or_none(sh.cell(rownum,12).value)
+        instance = db.session.query(Advertiser).filter_by(parent = parent, advertiser = acc).first()
+        if instance:
+            pass
         else:
-            if isinstance(sic,float):
-                sic = int(sic)
-            else:
-                sic = None
-            if isinstance(naics,float):
-                naics = int(naics)
-            else:
-                naics = None
-            industry =  get_or_create(db.session, Industry, sic = sic, naics = naics, industry_name = industry_name)  
-        parent = get_or_create(db.session, Parent, parent = parent_name)
-        adv = get_or_create(db.session, Advertiser, advertiser = advertiser)
-        adv.parent_agency = parent
-        adv.industry = industry
-        db.session.commit()
-    print("PopulateAdvertiser Finished")
+            a = Advertiser(parent = parent, advertiser = acc, sic = sic, naics = naics, adjusted_industry = adj, consolidated_industry = consol)
+            db.session.add(a)
+            db.session.commit()
+    print("PopulateAdvertiser Finished")            
+
     
 
 def populateRep(wb):  
@@ -538,10 +543,6 @@ def populateCampaignRevenue09(wb):
         # For multiple reps:
         instance = db.session.query(Campaign).filter_by(campaign = campaign, start_date = py_start, end_date = py_end).first()
         if instance:
-            print("Alert, Alert, Alert, Alert")
-            print(campaign)
-            print(rep.id)
-            print(instance.rep[0].id)
             instance.rep.append(rep)
             db.session.commit()
             c = instance
@@ -600,8 +601,6 @@ def populateCampaignRevenue10(wb):
         # For multiple reps:
         instance = db.session.query(Campaign).filter_by(campaign = campaign, start_date = py_start, end_date = py_end).first()
         if instance:
-            print("Alert, Alert, Alert, Alert")
-            print(campaign)
             instance.rep.append(rep)
             db.session.commit()
             c = instance
@@ -666,8 +665,6 @@ wb = xlrd.open_workbook('C:/Users/rthomas/Desktop/DatabaseProject/SalesMetricDat
 #populateCampaignRevenue10(wb)
 #populateCampaignRevenue(wb)
 #populateCampaignRevenue09(wb)
-
-#cleanDB()
 #readSFDCexcel()
 
 
