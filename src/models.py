@@ -8,6 +8,8 @@ from sqlalchemy.ext.declarative import declarative_base
 import psycopg2
 import flask.ext.sqlalchemy
 import xlrd
+import csv
+
 import re 
 from datetime import date, timedelta
 from datetime import datetime as D
@@ -86,6 +88,14 @@ def pivot_1(data):
              for k, data in groupby(data, itemgetter(0)))
     res = [[k] + [details[c] for c in cols] for k, details in pivot] 
     return [['Key'] + cols] + res
+ 
+def pivot_19(data):
+    cols = sorted(set(row[19] for row in data))
+    print(cols)
+    pivot = list((k, defaultdict(lambda: 0, (islice(d, 19, None) for d in data))) 
+             for k, data in groupby(data, itemgetter(0)))
+    res = [[k] + [details[c] for c in cols] for k, details in pivot] 
+    return [['Key'] + cols] + res 
  
     
 class SalesforceAuth(AuthBase):
@@ -469,7 +479,6 @@ def sfdc_from_sfdc(sf):
         s.commit()
 
 
-    
 def readSFDCexcel():
     s = db.session
     s.query(Sfdc).delete()
@@ -862,6 +871,30 @@ data = get_sql('SELECT * FROM HistoricalCPM')
 res = pivot_1(data)
 print(json.dumps(list(res), indent=2))
 '''
+import string
+def writeToExcel():
+    data = get_sql('SELECT * FROM CampaignBooked')
+    newdata = []
+    
+    for i in range(0,len(data)):
+        newdata.append([data[i][0:18]] + [data[i][19]] + [data[i][20]])
+        
+    res = pivot_1(newdata)
+    transformed_data = []
+    temp = []
+    
+    for i in range(1,len(res)):
+        temp = list(res[i][0])
+        temp += res[i][1:len(res[i])]
+        transformed_data.append(temp)
+    
+    filename = 'Downloads/salesmetric' + str(D.today().date()) + '.csv'
+    with open(filename, 'wb') as fout:
+        writer = csv.writer(fout)
+        writer.writerows(transformed_data)
+    #return json.dumps(filename)
+
+writeToExcel()
 
 #DropDB()
 db.create_all()   
@@ -875,10 +908,9 @@ wb = xlrd.open_workbook('C:/Users/rthomas/Desktop/DatabaseProject/SalesMetricDat
 #populateCampaignRevenue(wb)
 #populateCampaignRevenue09(wb)
 #readSFDCexcel()
-sf = Salesforce(username='rthomas@quantcast.com', password='qcsales', security_token='46GSRjDDmh9qNxlDiaefAhPun')
-ac = sfdc_from_sfdc(sf)
 
-
+#sf = Salesforce(username='rthomas@quantcast.com', password='qcsales', security_token='46GSRjDDmh9qNxlDiaefAhPun')
+#ac = sfdc_from_sfdc(sf)
 
 
 #import pdb; pdb.set_trace()

@@ -37,7 +37,15 @@ var HomeCtrl = function($scope, $location) {
 	
 };
 
-var ListCtrl = function ($scope, $location, Campaign, Booked, Actual) {
+var ListCtrl = function ($scope, $location, $http, Campaign, Booked, Actual) {
+	
+	$scope.download = function(){
+		$http.get('/api/campaigntoexcel').success(function(name) {
+ 			$scope.downloadtext = "Download successful to file " + name;
+		});	
+	};
+	
+
     var make_query = function() {
         var q = order_by($scope.sort_order, $scope.sort_desc ? "desc": "asc");
         if ($scope.query) {

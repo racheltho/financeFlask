@@ -4,6 +4,7 @@ from db_utils import *
 import flask.ext.restless
 import datetime
 import sqlalchemy as a
+import string
 
 # Create the Flask-Restless API manager.
 
@@ -23,6 +24,21 @@ manager.create_api(Actual, methods=['GET', 'POST', 'DELETE', 'PUT'], results_per
 manager.create_api(Sfdc, methods=['GET', 'POST', 'DELETE', 'PUT'], results_per_page=20, max_results_per_page=10000)
 manager.create_api(Channel, methods=['GET', 'POST', 'DELETE', 'PUT'], results_per_page=20)
 manager.create_api(Sfdccampaign, methods=['GET'], results_per_page=20)
+
+@app.route('/api/campaigntoexcel')
+def writeToExcel():
+    data = get_sql('SELECT * FROM CampaignBooked')
+    res = pivot_1(data)
+    #print(res[1:5])
+    transformed_data = []
+    #for item in res:
+    #    transformed_data[row] = string.split(res[row,0],'|') + res[row,1:2]
+    filename = 'Downloads/salesmetric' + str(D.today().date()) + '.csv'
+    with open(filename, 'wb') as fout:
+        writer = csv.writer(fout)
+        writer.writerows(res)
+    return json.dumps(filename)
+    
 
 @app.route('/api/agencytable/<int:agencyid>')
 def get_agency_table(agencyid):
