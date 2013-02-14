@@ -10,12 +10,20 @@ import flask.ext.sqlalchemy
 import xlrd
 import re 
 from datetime import date, timedelta
+from datetime import datetime as D
 from xldate import xldate_as_tuple
 
 from flask import jsonify
 from itertools import groupby, islice
 from operator import itemgetter
 from collections import defaultdict
+
+from requests.auth import AuthBase
+from sanetime import time
+from werkzeug.urls import Href
+import requests
+
+
 
 # Create the Flask application and the Flask-SQLAlchemy object.
 app = flask.Flask(__name__)
@@ -79,6 +87,130 @@ def pivot_1(data):
     res = [[k] + [details[c] for c in cols] for k, details in pivot] 
     return [['Key'] + cols] + res
  
+    
+class SalesforceAuth(AuthBase):
+    """
+    Usage:
+        sf = Salesforce(username=username, password=password, security_token=security_token)
+    Get all active campaigns, by account:
+        ac = active_campaigns(sf)
+    """
+    # These are from the Draper remote access app
+    # CLIENT_ID = '3MVG9VmVOCGHKYBTJhT3AbJPhaPXnB8fyM.si9oRE4.j9wrsTG0oeRugr2E6kmkmzk9QNZzm8UJOKW2D.s3NF'
+    # CLIENT_SECRET = '2476564724669919262'
+    
+    # These are from the Finance Reporting app
+    CLIENT_ID = '3MVG9VmVOCGHKYBTJhT3AbJPhaFEHVTrg4R3YShGvoU.blmkKLAELKE1hWZcUwpcGpR5Td.Pjotgije3g8gYc'
+    CLIENT_SECRET = '2869450356585909208'
+
+    def __init__(self, username, password, security_token,
+                 url='https://login.salesforce.com/services/oauth2/token',
+                 client_id=CLIENT_ID, client_secret=CLIENT_SECRET):
+        self.url = url
+        # TODO(sday): Add some facility to switch to test.salesforce.com when
+        # provided with sandbox username.
+        self.username = username
+        self.password = password
+        self.security_token = security_token
+        self.client_id = client_id
+        self.client_secret = client_secret
+
+        self.access_token = None
+        self.instance_url = None
+        self.issued_at = None
+
+        self.authorize()
+
+    def authorize(self):
+        r = requests.post(self.url, data={
+                'grant_type': 'password',
+                'client_id': self.client_id,
+                'client_secret': self.client_secret,
+                'username': self.username,
+                'password': self.password + self.security_token})
+
+        r.raise_for_status()
+
+        authdata = r.json()
+
+        self.access_token = authdata['access_token']
+        self.issued_at = time(int(authdata['issued_at']))
+        self.instance_url = Href(authdata['instance_url'])
+
+        # There are two other fields in this response that we are ignoring for
+        #  now (thx akovacs):
+        # 1. `id` - This is a url that leads to a description about the user
+        #    associated with this authorization session, including email, name
+        #    and username.
+        # 2. `signature` - This is a base64-encoded HMAC-SHA256 that can be
+        #    used to verify that the response was not tampered with. As we
+        #    become larger, it probably makes sense to verify this, but for
+        #    now, we'll leave it alone.
+        self.id_url = authdata['id']
+        self.signature = authdata['signature']
+
+    def __call__(self, request):
+
+        if self.access_token is None:
+            self.authorize()
+
+        request.headers['Authorization'] = 'Bearer {token}'.format(token=self.access_token)
+        return request
+
+
+class Salesforce(object):
+    """
+    A simple interface to salesforce, returning basic dict objects and
+    providing transparent iteration over resources.
+    """
+    VERSION = "v26.0"
+
+    def __init__(self, username, password, security_token, version=VERSION, session=requests.Session()):
+        self.version = version
+        self.session = session
+        self.session.auth = SalesforceAuth(username, password, security_token)
+
+    def base(self, *args, **kwargs):
+        """
+        Build url from base instance_url
+        """
+        return self.session.auth.instance_url(*args, **kwargs)
+
+    def href(self, *args, **kwargs):
+        """
+        Build a url against the api endpoint.
+        """
+        return self.base('services', 'data', self.version, *args, **kwargs)
+
+    def _iter_response(self, url, key):
+        """
+        Iterate over the response records, fetching the next urls if specified.
+        """
+        while True:
+            r = self.session.get(url)
+            # TODO(sday): Errors messages are available in json
+            r.raise_for_status()
+            content = r.json()
+            for obj in content[key]:
+                yield obj
+            if 'nextRecordsUrl' not in content:
+                break
+            url = self.base(content['nextRecordsUrl'])
+
+    def sobjects(self):
+        """
+        Retrieve information about the sobjects.
+        """
+        return self._iter_response(self.href('sobjects'), 'sobjects')
+
+    def describe(self, sobject):
+        r = self.session.get(self.href('sobjects', sobject, 'describe'))
+        r.raise_for_status()
+        return r.json()
+
+    def query(self, q):
+        return self._iter_response(self.href('query', q=q), 'records')
+
     
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -222,16 +354,23 @@ class Sfdc(db.Model):
 #    country = db.Column(db.Unicode)
 #    signedIO = db.Column(db.Unicode)
 #    setUp = db.Column(db.Unicode)
-#    agency = db.Column(db.Unicode)
+    sfdc_agency = db.Column(db.Unicode)
     cp = db.Column(db.Unicode)
     channel = db.Column(db.Unicode)
     advertiser = db.Column(db.Unicode)
     owner_name = db.Column(db.Unicode)
     start_date = db.Column(db.Date)
     end_date = db.Column(db.Date)
+    last_modified = db.Column(db.Date)
     budget = db.Column(db.Float)
     currency = db.Column(db.Unicode)
     approved = db.Column(db.Boolean)
+    
+
+    
+
+    
+        
 
 # Create the database tables.
 
@@ -247,7 +386,6 @@ sfdc_campaign_join = sfdc_table.outerjoin(campaign_table, sfdc_table.c.oid == ca
 class Sfdccampaign(db.Model):
     __table__ = sfdc_campaign_join
     __tablename__ = 'sfdccampaign'
-
     #chanid = channel_table.c.id
     #chanchannel = channel_table.c.channel
     #rid = rep_table.c.id
@@ -260,6 +398,55 @@ class Sfdccampaign(db.Model):
     cend_date = campaign_table.c.end_date
     #cchannel = campaign_table.c.channel
     #cadvertsier = campaign_table.c.advertiser
+
+
+
+def sfdc_from_sfdc(sf):
+    s = db.session
+    for row in sf.query("""SELECT IO.Name, IO.CreatedDate, IO.LastModifiedDate, IO.Start_Date__c, IO.End_Date__c, IO.Budget__c, IO.SalesChannel__c, IO.Advertiser_Account__c, 
+                                op.Name, op.CreatedDate, a.Name, op.CampaignStart__c, op.CampaignEnd__c, op.Rate_Type__c, op.Opportunity_ID__c, op.SalesPlanner__c, 
+                                op.LastModifiedDate, op.Owner.Name, 
+                                aa.Name, aa.CurrencyIsoCode
+                            FROM Insertion_Order__c IO, IO.Opportunity__r op, op.Agency__r a, IO.Advertiser_Account__r aa
+                            WHERE op.Agency__c <> null LIMIT 50"""):
+
+        #sf_io = row['Insertion_Order__c']
+
+
+        sf_ioname = row['Name']
+        sf_channel = row['SalesChannel__c']
+        sf_budget = row['Budget__c']
+               
+        sf_oid = int(row['Opportunity__r']['Opportunity_ID__c'])
+        sf_cp = row['Opportunity__r']['Rate_Type__c']
+        
+        start_date = row['Opportunity__r']['CampaignStart__c']
+        end_date = row['Opportunity__r']['CampaignEnd__c']
+        last_modified = row['Opportunity__r']['LastModifiedDate'][0:10]
+        print(last_modified)
+        sf_start_date = D.strptime(start_date,'%Y-%m-%d').date()
+        sf_end_date = D.strptime(end_date,'%Y-%m-%d').date()
+        sf_last_modified = D.strptime(last_modified,'%Y-%m-%d').date()
+        
+        agency_r = row['Opportunity__r']['Agency__r']
+        sf_agencyname = None
+        if(agency_r):
+            sf_agencyname = agency_r['Name']
+        owner = row['Opportunity__r']['Owner']
+        sf_owner_name = None
+        if(owner):
+            sf_owner_name = owner['Name']
+
+        sf_advertiser = row['Advertiser_Account__r']['Name']
+        sf_currency = row['Advertiser_Account__r']['CurrencyIsoCode']
+                
+
+        a = Sfdc(oid = sf_oid, channel = sf_channel, sfdc_agency = sf_agencyname, cp = sf_cp, advertiser = sf_advertiser, owner_name = sf_owner_name, start_date = sf_start_date, 
+                 end_date = sf_end_date, last_modified = sf_last_modified, budget = sf_budget, ioname = sf_ioname, currency = sf_currency, approved = False)
+        s.add(a)
+        s.commit()
+
+
     
 def readSFDCexcel():
     s = db.session
@@ -666,6 +853,10 @@ wb = xlrd.open_workbook('C:/Users/rthomas/Desktop/DatabaseProject/SalesMetricDat
 #populateCampaignRevenue(wb)
 #populateCampaignRevenue09(wb)
 #readSFDCexcel()
+sf = Salesforce(username='rthomas@quantcast.com', password='qcsales', security_token='46GSRjDDmh9qNxlDiaefAhPun')
+ac = sfdc_from_sfdc(sf)
+
+
 
 
 #import pdb; pdb.set_trace()

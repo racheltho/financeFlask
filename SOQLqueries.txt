@@ -1,0 +1,5 @@
+SELECT IO.Name, IO.CreatedDate, IO.LastModifiedDate, IO.Start_Date__c, IO.End_Date__c, IO.Account_ID__c, IO.Budget__c, IO.Total_Revenue__c,
+op.Name, op.AccountId, op.Amount, op.CreatedDate, a.Name, op.CampaignStart__c, op.CampaignEnd__c, op.Rate_Type__c, op.Opportunity_ID__c, op.SalesPlanner__c, op.LastModifiedDate, op.OwnerId
+FROM Insertion_Order__c IO, IO.Opportunity__r op, op.Agency__r a
+WHERE op.Agency__c <> null
+LIMIT 50
