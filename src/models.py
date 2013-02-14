@@ -56,7 +56,7 @@ def get_date_or_none(entry):
 
 
 def int_or_none(entry):
-    if isinstance(entry, float):
+    if isinstance(entry, float) or isinstance(entry, str):
         return int(entry)
     else:
         return None
@@ -400,6 +400,12 @@ class Sfdccampaign(db.Model):
     #cadvertsier = campaign_table.c.advertiser
 
 
+def strptime_or_none(mydate):
+    if(mydate == None):
+        return None
+    else:
+        return D.strptime(mydate,'%Y-%m-%d').date()
+
 
 def sfdc_from_sfdc(sf):
     s = db.session
@@ -408,7 +414,7 @@ def sfdc_from_sfdc(sf):
                                 op.LastModifiedDate, op.Owner.Name, 
                                 aa.Name, aa.CurrencyIsoCode
                             FROM Insertion_Order__c IO, IO.Opportunity__r op, op.Agency__r a, IO.Advertiser_Account__r aa
-                            WHERE op.Agency__c <> null LIMIT 50"""):
+                            WHERE op.Id <> null"""):
 
         #sf_io = row['Insertion_Order__c']
 
@@ -416,17 +422,24 @@ def sfdc_from_sfdc(sf):
         sf_ioname = row['Name']
         sf_channel = row['SalesChannel__c']
         sf_budget = row['Budget__c']
-               
-        sf_oid = int(row['Opportunity__r']['Opportunity_ID__c'])
+        try:
+            sf_oid = int_or_none(row['Opportunity__r']['Opportunity_ID__c'])
+        except:
+            print(row['Opportunity__r'])
+            print(row['Opportunity__r']['Opportunity_ID__c'])
         sf_cp = row['Opportunity__r']['Rate_Type__c']
         
         start_date = row['Opportunity__r']['CampaignStart__c']
         end_date = row['Opportunity__r']['CampaignEnd__c']
-        last_modified = row['Opportunity__r']['LastModifiedDate'][0:10]
-        print(last_modified)
-        sf_start_date = D.strptime(start_date,'%Y-%m-%d').date()
-        sf_end_date = D.strptime(end_date,'%Y-%m-%d').date()
-        sf_last_modified = D.strptime(last_modified,'%Y-%m-%d').date()
+        last_mod_temp = row['Opportunity__r']['LastModifiedDate']
+        sf_last_modified = None
+        if(last_mod_temp):
+            last_modified = last_mod_temp[0:10]
+            sf_last_modified = strptime_or_none(last_modified)
+    
+        sf_start_date = strptime_or_none(start_date)
+        sf_end_date = strptime_or_none(end_date)
+        
         
         agency_r = row['Opportunity__r']['Agency__r']
         sf_agencyname = None
@@ -435,11 +448,20 @@ def sfdc_from_sfdc(sf):
         owner = row['Opportunity__r']['Owner']
         sf_owner_name = None
         if(owner):
-            sf_owner_name = owner['Name']
+            owner_temp = owner['Name']
+            last = re.search('[A-Z][a-z]*$', owner_temp)
+            if(last.group() == "Pigeon"):
+                sf_owner_name = "Pigeon, Matt"
+            else:
+                first = re.search('^[A-Z][a-z]*', owner_temp)
+                sf_owner_name = last.group() + ", " + first.group()
 
-        sf_advertiser = row['Advertiser_Account__r']['Name']
-        sf_currency = row['Advertiser_Account__r']['CurrencyIsoCode']
-                
+        advertiser = row['Advertiser_Account__r']
+        sf_advertiser = None
+        sf_currency = None
+        if(advertiser):
+            sf_advertiser = advertiser['Name']
+            sf_currency = advertiser['CurrencyIsoCode']
 
         a = Sfdc(oid = sf_oid, channel = sf_channel, sfdc_agency = sf_agencyname, cp = sf_cp, advertiser = sf_advertiser, owner_name = sf_owner_name, start_date = sf_start_date, 
                  end_date = sf_end_date, last_modified = sf_last_modified, budget = sf_budget, ioname = sf_ioname, currency = sf_currency, approved = False)
