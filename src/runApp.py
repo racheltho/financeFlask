@@ -28,17 +28,29 @@ manager.create_api(Sfdccampaign, methods=['GET'], results_per_page=20)
 @app.route('/api/campaigntoexcel')
 def writeToExcel():
     data = get_sql('SELECT * FROM CampaignBooked')
-    res = pivot_1(data)
-    #print(res[1:5])
+    newdata = []
+    
+    for i in range(0,len(data)):
+        newdata.append([data[i][0:18]] + [data[i][19]] + [data[i][20]])
+        
+    res = pivot_1(newdata)
+    
     transformed_data = []
-    #for item in res:
-    #    transformed_data[row] = string.split(res[row,0],'|') + res[row,1:2]
+    temp = ['Campaign','Type','Product','Channel','Advertiser','Industry','Agency', 'SFDC OID', 'Rep_ID', 'CPA/CPM', 'Start Date', 'End Date', 'CPM Price', 'Contracted Impressions', 'Booked Impressions', 'Delivered Impressions', 'Contracted Deal', 'Revised Deal']
+    temp += res[0][1:len(res[0])]
+    transformed_data.append(temp)
+    
+    for i in range(1,len(res)):
+        temp = list(res[i][0])
+        temp += res[i][1:len(res[i])]
+        transformed_data.append(temp)
+   
     filename = 'Downloads/salesmetric' + str(D.today().date()) + '.csv'
     with open(filename, 'wb') as fout:
         writer = csv.writer(fout)
-        writer.writerows(res)
+        writer.writerows(transformed_data)
     return json.dumps(filename)
-    
+
 
 @app.route('/api/agencytable/<int:agencyid>')
 def get_agency_table(agencyid):

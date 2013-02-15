@@ -871,30 +871,7 @@ data = get_sql('SELECT * FROM HistoricalCPM')
 res = pivot_1(data)
 print(json.dumps(list(res), indent=2))
 '''
-import string
-def writeToExcel():
-    data = get_sql('SELECT * FROM CampaignBooked')
-    newdata = []
-    
-    for i in range(0,len(data)):
-        newdata.append([data[i][0:18]] + [data[i][19]] + [data[i][20]])
-        
-    res = pivot_1(newdata)
-    transformed_data = []
-    temp = []
-    
-    for i in range(1,len(res)):
-        temp = list(res[i][0])
-        temp += res[i][1:len(res[i])]
-        transformed_data.append(temp)
-    
-    filename = 'Downloads/salesmetric' + str(D.today().date()) + '.csv'
-    with open(filename, 'wb') as fout:
-        writer = csv.writer(fout)
-        writer.writerows(transformed_data)
-    #return json.dumps(filename)
 
-writeToExcel()
 
 #DropDB()
 db.create_all()   

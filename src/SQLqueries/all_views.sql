@@ -1,15 +1,20 @@
 ﻿CREATE INDEX adv_adv_index ON advertiser (advertiser);
 
 CREATE OR REPLACE VIEW CampaignBooked AS
-SELECT CAST(C.campaign || '|' || C.type || '|' || C.product_id || '|' || C.channel_id || '|' || C.advertiser_id || '|' || C.industry
-  || '|' || C.agency  || '|' || C.sfdc_oid || '|' || C.rep_id || '|' || C.cp || '|' || C.start_date || '|' || C.end_date || '|' || C.cpm_price
-  || '|' || C.contracted_impr || '|' || C.booked_impr || '|' || C.delivered_impr || '|' || C.contracted_deal || '|' || C.revised_deal 
-  || '|' || C.opportunity  AS Varchar), B.date, B."bookedRev"
+SELECT C.campaign, C.type, C.product_id, C.channel_id, C.advertiser_id, C.industry, C.agency, C.sfdc_oid, C.rep_id, C.cp, C.start_date, C.end_date, 
+  C.cpm_price, C.contracted_impr, C.booked_impr, C.delivered_impr, C.contracted_deal, C.revised_deal, C.opportunity, B.date, B."bookedRev"
   FROM campaign C
   JOIN booked B
   ON C.id = B.campaign_id
+  JOIN advertiser A
+  ON C.advertiser_id = A.id
+  JOIN channel CH
+  ON C.channel_id = CH.id
+  JOIN Product P
+  ON C.product_id = P.id
   ORDER BY C.campaign;
 
+DROP VIEW CampaignBooked
 
 
 CREATE OR REPLACE VIEW Agencytable AS
