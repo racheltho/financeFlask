@@ -1,5 +1,6 @@
 from models import *
 from db_utils import *
+from flask import Response
 
 import flask.ext.restless
 import datetime
@@ -25,7 +26,7 @@ manager.create_api(Sfdc, methods=['GET', 'POST', 'DELETE', 'PUT'], results_per_p
 manager.create_api(Channel, methods=['GET', 'POST', 'DELETE', 'PUT'], results_per_page=20)
 manager.create_api(Sfdccampaign, methods=['GET'], results_per_page=20)
 
-@app.route('/api/campaigntoexcel')
+@app.route('/static/api/campaigntoexcel')
 def writeToExcel():
     data = get_sql('SELECT * FROM CampaignBooked')
     newdata = []
@@ -45,12 +46,18 @@ def writeToExcel():
         temp += res[i][1:len(res[i])]
         transformed_data.append(temp)
    
-    filename = 'Downloads/salesmetric' + str(D.today().date()) + '.csv'
+    filename = 'salesmetric' + str(D.today().date()) + '.csv'
+    lines = csv2string(transformed_data)
+    resp = Response(lines, status=200, mimetype='text/csv')
+    resp.headers['Content-Disposition'] = 'attachment; filename=' + filename
+    return resp 
+    
+    """
     with open(filename, 'wb') as fout:
         writer = csv.writer(fout)
         writer.writerows(transformed_data)
     return json.dumps(filename)
-
+    """
 
 @app.route('/api/agencytable/<int:agencyid>')
 def get_agency_table(agencyid):

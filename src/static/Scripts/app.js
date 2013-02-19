@@ -40,8 +40,12 @@ var HomeCtrl = function($scope, $location) {
 var ListCtrl = function ($scope, $location, $http, Campaign, Booked, Actual) {
 	
 	$scope.download = function(){
-		$http.get('/api/campaigntoexcel').success(function(name) {
- 			$scope.downloadtext = "Download successful to file " + name;
+		$http.get('/api/campaigntoexcel').success(function(csv) {
+			$scope.downloadtext = "Download successful";
+			//$location.path('data:application/csv;charset=utf-8,' + data);	
+			var uriContent = "data:application/octet-stream," + encodeURIComponent(csv);
+			var myWindow = window.open(uriContent, "Nutrient CSV");
+			myWindow.focus();		
 		});	
 	};
 	

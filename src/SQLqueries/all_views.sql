@@ -1,7 +1,7 @@
 ﻿CREATE INDEX adv_adv_index ON advertiser (advertiser);
 
 CREATE OR REPLACE VIEW CampaignBooked AS
-SELECT C.campaign, C.type, C.product_id, C.channel_id, C.advertiser_id, C.industry, C.agency, C.sfdc_oid, C.rep_id, C.cp, C.start_date, C.end_date, 
+SELECT C.campaign, C.type, P.product, CH.channel, A.advertiser, C.industry, C.agency, C.sfdc_oid, C.rep_id, C.cp, C.start_date, C.end_date, 
   C.cpm_price, C.contracted_impr, C.booked_impr, C.delivered_impr, C.contracted_deal, C.revised_deal, C.opportunity, B.date, B."bookedRev"
   FROM campaign C
   JOIN booked B
@@ -14,7 +14,6 @@ SELECT C.campaign, C.type, C.product_id, C.channel_id, C.advertiser_id, C.indust
   ON C.product_id = P.id
   ORDER BY C.campaign;
 
-DROP VIEW CampaignBooked
 
 
 CREATE OR REPLACE VIEW Agencytable AS

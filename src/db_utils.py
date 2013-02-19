@@ -6,6 +6,8 @@ Created on Jan 21, 2013
 
 from models import *
 from datetime import date
+import StringIO
+import csv
 
 def find_rep_db(name, s):
     last,first = name.split(', ')
@@ -47,3 +49,9 @@ def sfdc_to_campaign(sfdcid, ses):
     c.type = r.type
     
     return c
+
+def csv2string(data):
+    si = StringIO.StringIO()
+    cw = csv.writer(si)
+    cw.writerows(data)
+    return si.getvalue()
